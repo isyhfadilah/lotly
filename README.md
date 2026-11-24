@@ -63,7 +63,7 @@ Jika PowerShell memblokir `pnpm.ps1` karena execution policy, gunakan shim `.cmd
 pnpm.cmd run commit:watch
 ```
 
-Watcher mengelompokkan perubahan selama lima detik sebelum membuat commit lokal. Terminal menampilkan saat watcher aktif, perubahan terdeteksi, commit berhasil, atau watcher berhenti. Tekan `Ctrl+C` untuk menghentikannya. Watcher tidak melakukan push; push dilakukan secara manual.
+Watcher memeriksa perubahan file setiap detik dan mengelompokkannya selama lima detik sebelum membuat commit lokal. Terminal menampilkan saat watcher aktif, file yang terdeteksi, commit berhasil, atau watcher berhenti. Tekan `Ctrl+C` untuk menghentikannya. Watcher tidak melakukan push; push dilakukan secara manual.
 
 File yang berubah sebelum watcher dimulai tidak otomatis di-commit. Ubah file tersebut setelah watcher aktif, atau buat commit manual. Folder `bin/`, `obj/`, dan `.vs/` dikecualikan dari Git.
 

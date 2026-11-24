@@ -1,14 +1,13 @@
 param(
-    [int] $DebounceSeconds = 5
+    [int] $DebounceSeconds = 5,
+    [int] $PollIntervalSeconds = 1
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $safeDirectory = $repoRoot.Replace('\', '/')
-$pending = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
-$watcher = [System.IO.FileSystemWatcher]::new($repoRoot)
-$watcher.IncludeSubdirectories = $true
-$watcher.NotifyFilter = [System.IO.NotifyFilters]'FileName, DirectoryName, LastWrite, Size'
+$ignoredDirectories = @('.git', 'bin', 'obj', '.vs', 'node_modules')
+$deferredPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
 function Invoke-Git([string[]] $GitArgs) {
     $result = & git -c "safe.directory=$safeDirectory" -C $repoRoot @GitArgs 2>&1
@@ -16,68 +15,103 @@ function Invoke-Git([string[]] $GitArgs) {
     return $result
 }
 
-function Add-ChangedPath([string] $FullPath) {
-    if ([string]::IsNullOrWhiteSpace($FullPath)) { return }
-    $relative = [System.IO.Path]::GetRelativePath($repoRoot, $FullPath).Replace('\', '/')
-    if ($relative -eq '..' -or $relative.StartsWith('../') -or $relative.StartsWith('.git/')) { return }
-    if ($relative -match '(^|/)(bin|obj|\.vs)/' -or $relative -match '\.(user|suo)$') { return }
-    $pending.Enqueue($relative)
+function Get-WorkspaceSnapshot {
+    $snapshot = @{}
+    $directories = [System.Collections.Generic.Stack[string]]::new()
+    $directories.Push($repoRoot)
+
+    while ($directories.Count -gt 0) {
+        $directory = $directories.Pop()
+        foreach ($item in Get-ChildItem -LiteralPath $directory -Force -ErrorAction SilentlyContinue) {
+            if ($item.PSIsContainer) {
+                if ($item.Name -notin $ignoredDirectories) { $directories.Push($item.FullName) }
+                continue
+            }
+
+            if ($item.Extension -in @('.user', '.suo')) { continue }
+            $relative = [System.IO.Path]::GetRelativePath($repoRoot, $item.FullName).Replace('\', '/')
+            $snapshot[$relative] = "$($item.Length):$($item.LastWriteTimeUtc.Ticks)"
+        }
+    }
+
+    return $snapshot
 }
 
-$onChanged = [System.IO.FileSystemEventHandler]{ param($sender, $event) Add-ChangedPath $event.FullPath }.GetNewClosure()
-$onRenamed = [System.IO.RenamedEventHandler]{ param($sender, $event) Add-ChangedPath $event.FullPath; Add-ChangedPath $event.OldFullPath }.GetNewClosure()
-$watcher.add_Changed($onChanged)
-$watcher.add_Created($onChanged)
-$watcher.add_Deleted($onChanged)
-$watcher.add_Renamed($onRenamed)
-$watcher.EnableRaisingEvents = $true
+function Get-ChangedPaths($Previous, $Current) {
+    $changed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $Previous.Keys) {
+        if (-not $Current.ContainsKey($path) -or $Previous[$path] -ne $Current[$path]) { [void]$changed.Add($path) }
+    }
+    foreach ($path in $Current.Keys) {
+        if (-not $Previous.ContainsKey($path)) { [void]$changed.Add($path) }
+    }
+    return $changed
+}
 
-Write-Host "Watcher berjalan di $repoRoot. Tekan Ctrl+C untuk berhenti. Tidak ada push."
-Write-Host "Perubahan dikelompokkan selama $DebounceSeconds detik. File yang sudah ada sebelum watcher berjalan hanya diproses setelah berubah."
+$previousSnapshot = Get-WorkspaceSnapshot
+Write-Host "Watcher aktif di $repoRoot. Perubahan diperiksa setiap $PollIntervalSeconds detik; tekan Ctrl+C untuk berhenti. Tidak ada push."
+Write-Host "File yang sudah ada sebelum watcher aktif tidak di-commit sampai berubah. Perubahan digabung selama $DebounceSeconds detik."
 
 try {
     while ($true) {
-        Start-Sleep -Milliseconds 500
-        if ($pending.IsEmpty) { continue }
-        Write-Host 'Perubahan terdeteksi; menunggu jeda agar perubahan terkait digabung...'
+        Start-Sleep -Seconds $PollIntervalSeconds
+        $currentSnapshot = Get-WorkspaceSnapshot
+        $changedPaths = Get-ChangedPaths $previousSnapshot $currentSnapshot
+        $previousSnapshot = $currentSnapshot
+
+        if ($changedPaths.Count -eq 0 -and $deferredPaths.Count -eq 0) { continue }
+        foreach ($path in $changedPaths) { [void]$deferredPaths.Add($path) }
+        Write-Host "Perubahan terdeteksi: $(@($deferredPaths) -join ', ')"
         Start-Sleep -Seconds $DebounceSeconds
 
-        $pathSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        $nextPath = ''
-        while ($pending.TryDequeue([ref]$nextPath)) { [void]$pathSet.Add($nextPath) }
-        $paths = @($pathSet)
+        $settledSnapshot = Get-WorkspaceSnapshot
+        $lateChanges = Get-ChangedPaths $previousSnapshot $settledSnapshot
+        foreach ($path in $lateChanges) { [void]$deferredPaths.Add($path) }
+        $previousSnapshot = $settledSnapshot
 
-        # Do not absorb changes that were already staged before this watcher ran.
         $staged = @(Invoke-Git @('diff', '--cached', '--name-only'))
         if ($staged.Count -gt 0) {
-            Write-Warning 'Commit otomatis dilewati karena index Git sudah berisi perubahan staged. Kosongkan/commit index lalu ubah file lagi.'
+            Write-Warning 'Commit otomatis menunggu karena index Git sudah berisi perubahan staged. Commit atau unstaged perubahan tersebut, watcher akan mencoba lagi.'
             continue
         }
 
+        $paths = @($deferredPaths)
         $changed = [System.Collections.Generic.List[string]]::new()
         foreach ($path in $paths) {
             $status = @(Invoke-Git @('status', '--porcelain', '--untracked-files=all', '--', ":(literal)$path"))
             if ($status.Count -gt 0) { [void]$changed.Add($path) }
         }
-        if ($changed.Count -eq 0) { continue }
+        if ($changed.Count -eq 0) {
+            $deferredPaths.Clear()
+            continue
+        }
 
         foreach ($path in $changed) { Invoke-Git @('add', '-A', '--', ":(literal)$path") | Out-Null }
 
         $cached = @(Invoke-Git @('diff', '--cached', '--name-status'))
         $added = @($cached | Where-Object { $_ -match '^A\s' })
-        $type = if ($added.Count -gt 0) { 'feat' } else { 'chore' }
-        $names = @($changed | Select-Object -Unique)
+        $names = @($changed | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Select-Object -Unique)
+        if ($added.Count -gt 0) {
+            $type = 'feat'
+            $verb = 'add'
+        } else {
+            $type = 'chore'
+            $verb = 'update'
+        }
         if ($names.Count -le 2) { $summary = $names -join ' and ' }
         else { $summary = "$($names[0]), $($names[1]), and $($names.Count - 2) more files" }
-        $subject = "$type(auto): update $summary"
+        $subject = "$type(auto): $verb $summary"
         if ($subject.Length -gt 72) { $subject = $subject.Substring(0, 69).TrimEnd() + '...' }
 
         Invoke-Git @('commit', '-m', $subject) | Out-Host
         Write-Host "Commit lokal berhasil: $subject"
+        $deferredPaths.Clear()
     }
 }
+catch {
+    Write-Error "Watcher berhenti karena gagal: $_"
+    throw
+}
 finally {
-    $watcher.EnableRaisingEvents = $false
-    $watcher.Dispose()
     Write-Host 'Watcher berhenti.'
 }
