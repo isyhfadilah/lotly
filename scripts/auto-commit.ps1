@@ -29,7 +29,7 @@ function Get-WorkspaceSnapshot {
             }
 
             if ($item.Extension -in @('.user', '.suo')) { continue }
-            $relative = [System.IO.Path]::GetRelativePath($repoRoot, $item.FullName).Replace('\', '/')
+            $relative = $item.FullName.Substring($repoRoot.Length).TrimStart([char[]]@([char]92, [char]47)).Replace([char]92, [char]47)
             $snapshot[$relative] = "$($item.Length):$($item.LastWriteTimeUtc.Ticks)"
         }
     }
