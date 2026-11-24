@@ -10,8 +10,16 @@ $ignoredDirectories = @('.git', 'bin', 'obj', '.vs', 'node_modules')
 $deferredPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
 function Invoke-Git([string[]] $GitArgs) {
-    $result = & git -c "safe.directory=$safeDirectory" -C $repoRoot @GitArgs 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Git gagal: $($result -join [Environment]::NewLine)" }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $result = & git -c "safe.directory=$safeDirectory" -C $repoRoot @GitArgs 2>&1
+        $gitExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($gitExitCode -ne 0) { throw "Git gagal (kode $gitExitCode): $($result -join [Environment]::NewLine)" }
     return $result
 }
 
