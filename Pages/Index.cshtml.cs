@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Entitas.Domain.Entities;
+using Lotly.Domain.Entities;
 
-namespace Entitas.Pages;
+namespace Lotly.Pages;
 
 public class IndexModel : PageModel
 {

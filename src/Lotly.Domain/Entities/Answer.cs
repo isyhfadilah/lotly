@@ -1,4 +1,4 @@
-namespace Entitas.Domain.Entities;
+namespace Lotly.Domain.Entities;
 
 public sealed class Answer
 {

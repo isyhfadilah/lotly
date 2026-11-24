@@ -1,6 +1,6 @@
-# Entitas
+# Lotly
 
-Entitas adalah aplikasi web ASP.NET Core Razor Pages dengan model domain untuk seller, listing, question, dan answer. Aplikasi saat ini menampilkan contoh entitas `Seller` pada halaman utama.
+Lotly adalah prototipe marketplace berbasis ASP.NET Core Razor Pages. Model domain saat ini mencakup seller, listing, question, dan answer. Halaman utama menampilkan contoh profil seller.
 
 ## Teknologi
 
@@ -27,13 +27,13 @@ pnpm --version
 Jalankan dari direktori proyek:
 
 ```powershell
-dotnet run --project Entitas.csproj
+dotnet run --project Lotly.csproj
 ```
 
 Buka alamat lokal yang ditampilkan oleh ASP.NET Core di terminal. Untuk menjalankan aplikasi dengan pemantauan perubahan kode:
 
 ```powershell
-dotnet watch --project Entitas.csproj
+dotnet watch --project Lotly.csproj
 ```
 
 ## Struktur proyek
@@ -43,9 +43,9 @@ dotnet watch --project Entitas.csproj
 ├── Pages/                         # Halaman Razor
 ├── Properties/                    # Konfigurasi peluncuran lokal
 ├── scripts/auto-commit.ps1        # Watcher commit lokal
-├── src/Entitas.Domain/Entities/   # Entitas domain
+├── src/Lotly.Domain/Entities/     # Entitas domain
 ├── wwwroot/                       # CSS, JavaScript, dan aset statis
-├── Entitas.csproj
+├── Lotly.csproj
 └── package.json                   # Perintah pnpm
 ```
 
