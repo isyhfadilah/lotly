@@ -54,7 +54,13 @@ dotnet watch --project Entitas.csproj
 Mulai watcher dari direktori proyek dan biarkan terminal tetap terbuka:
 
 ```powershell
-pnpm commit:watch
+pnpm run commit:watch
+```
+
+Jika PowerShell memblokir `pnpm.ps1` karena execution policy, gunakan shim `.cmd`:
+
+```powershell
+pnpm.cmd run commit:watch
 ```
 
 Watcher mengelompokkan perubahan selama lima detik sebelum membuat commit lokal. Terminal menampilkan saat watcher aktif, perubahan terdeteksi, commit berhasil, atau watcher berhenti. Tekan `Ctrl+C` untuk menghentikannya. Watcher tidak melakukan push; push dilakukan secara manual.
