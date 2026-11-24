@@ -1,0 +1,7 @@
+{
+  "name": "entitas",
+  "private": true,
+  "scripts": {
+    "commit:watch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-commit.ps1"
+  }
+}

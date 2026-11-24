@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $safeDirectory = $repoRoot.Replace('\', '/')
-$pending = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$pending = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $watcher = [System.IO.FileSystemWatcher]::new($repoRoot)
 $watcher.IncludeSubdirectories = $true
 $watcher.NotifyFilter = [System.IO.NotifyFilters]'FileName, DirectoryName, LastWrite, Size'
@@ -21,7 +21,7 @@ function Add-ChangedPath([string] $FullPath) {
     $relative = [System.IO.Path]::GetRelativePath($repoRoot, $FullPath).Replace('\', '/')
     if ($relative -eq '..' -or $relative.StartsWith('../') -or $relative.StartsWith('.git/')) { return }
     if ($relative -match '(^|/)(bin|obj|\.vs)/' -or $relative -match '\.(user|suo)$') { return }
-    [void]$pending.Add($relative)
+    $pending.Enqueue($relative)
 }
 
 $onChanged = [System.IO.FileSystemEventHandler]{ param($sender, $event) Add-ChangedPath $event.FullPath }.GetNewClosure()
@@ -32,17 +32,20 @@ $watcher.add_Deleted($onChanged)
 $watcher.add_Renamed($onRenamed)
 $watcher.EnableRaisingEvents = $true
 
-Write-Host "Automatic local commits are running in $repoRoot. Press Ctrl+C to stop. No push will be performed."
-Write-Host "Changes are grouped for $DebounceSeconds seconds. Existing files are not committed until they change after startup."
+Write-Host "Watcher berjalan di $repoRoot. Tekan Ctrl+C untuk berhenti. Tidak ada push."
+Write-Host "Perubahan dikelompokkan selama $DebounceSeconds detik. File yang sudah ada sebelum watcher berjalan hanya diproses setelah berubah."
 
 try {
     while ($true) {
         Start-Sleep -Milliseconds 500
-        if ($pending.Count -eq 0) { continue }
+        if ($pending.IsEmpty) { continue }
+        Write-Host 'Perubahan terdeteksi; menunggu jeda agar perubahan terkait digabung...'
         Start-Sleep -Seconds $DebounceSeconds
 
-        $paths = @($pending)
-        $pending.Clear()
+        $pathSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $nextPath = ''
+        while ($pending.TryDequeue([ref]$nextPath)) { [void]$pathSet.Add($nextPath) }
+        $paths = @($pathSet)
 
         # Do not absorb changes that were already staged before this watcher ran.
         $staged = @(Invoke-Git @('diff', '--cached', '--name-only'))
@@ -63,17 +66,18 @@ try {
         $cached = @(Invoke-Git @('diff', '--cached', '--name-status'))
         $added = @($cached | Where-Object { $_ -match '^A\s' })
         $type = if ($added.Count -gt 0) { 'feat' } else { 'chore' }
-        $names = @($changed | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Select-Object -Unique)
+        $names = @($changed | Select-Object -Unique)
         if ($names.Count -le 2) { $summary = $names -join ' and ' }
         else { $summary = "$($names[0]), $($names[1]), and $($names.Count - 2) more files" }
         $subject = "$type(auto): update $summary"
         if ($subject.Length -gt 72) { $subject = $subject.Substring(0, 69).TrimEnd() + '...' }
 
-        Invoke-Git @('commit', '-m', $subject)
-        Write-Host "Committed: $subject"
+        Invoke-Git @('commit', '-m', $subject) | Out-Host
+        Write-Host "Commit lokal berhasil: $subject"
     }
 }
 finally {
     $watcher.EnableRaisingEvents = $false
     $watcher.Dispose()
+    Write-Host 'Watcher berhenti.'
 }
