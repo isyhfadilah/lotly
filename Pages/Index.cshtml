@@ -1,0 +1,19 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Template DDD - Seller";
+}
+
+<div class="container py-5">
+    <p class="text-uppercase text-primary fw-semibold">Entitas Domain</p>
+    <h1 class="display-5">Seller</h1>
+    <p class="lead">Contoh entitas domain Seller yang digunakan oleh aplikasi.</p>
+    <dl class="row mt-4">
+        <dt class="col-sm-2">ID</dt>
+        <dd class="col-sm-10">@Model.Seller.Id</dd>
+        <dt class="col-sm-2">Nama</dt>
+        <dd class="col-sm-10">@Model.Seller.StoreName</dd>
+        <dt class="col-sm-2">Email</dt>
+        <dd class="col-sm-10">@Model.Seller.Email</dd>
+    </dl>
+</div>
